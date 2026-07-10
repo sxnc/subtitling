@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Generated output — never commit someone's subtitles
+*_optimized.srt
+*_optimized.vtt
+
+.DS_Store
