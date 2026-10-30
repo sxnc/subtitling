@@ -7,3 +7,9 @@ __pycache__/
 *_optimized.vtt
 
 .DS_Store
+
+# Subtitler jobs: audio copies, transcripts and delivered SRTs stay local
+work/
+output/
+reference/*.srt
+.venv.nosync/

@@ -1,108 +1,85 @@
-# subtitling
+# Social-first subtitler
 
-Proofread and re-flow subtitle files (`.srt` / `.vtt`) **with the Claude Code
-instance you already have open** — no API key, no separate API billing, no
-network calls. Claude reads the subtitles, applies the optimization rules, and
-writes the result. Your timestamps are never touched.
+Turns a voice-over or dialogue audio file into short, punchy social-media
+subtitles: 1–4 words per event, bold italic, timed to the word, with
+Swiss Standard German orthography and carefully checked punctuation. Swiss
+German audio comes out as Schweizer Hochdeutsch.
+
+## How to use
+
+Open this folder in Claude Code and drop in an audio file:
 
 ```
-Sie haben zum Beispiel nicht gleich gut          Sie haben zum Beispiel
-geschmeckt oder nachhaltige T-Shirts     ─►      nicht gleich gut geschmeckt,
-haben auch abgefährt.                            oder nachhaltige T-Shirts
-                                                 haben auch abgefärbt.
+@"~/Downloads/20261012_CEMBRA_Präsentation - V2.wav"
 ```
 
-## Use it
+That's all. Claude follows [CLAUDE.md](CLAUDE.md): it transcribes with two
+Whisper models, re-checks every doubtful passage in isolation, writes and
+punctuates the text, chunks it into events, and builds the SRTs. You get:
 
-1. Open this folder in a terminal.
-2. Run `claude`.
-3. **Drag a `.srt` or `.vtt` file into the terminal window and press enter.**
+- `output/<name>.srt` — timeline start 01:00:00:00 (drops straight onto a Resolve timeline)
+- `output/<name> (00h start).srt` — the same, starting at 00:00:00
+- the full text in chat for proofreading, plus a list of anything uncertain
 
-That's it. Dropping the file pastes its path, and the included `CLAUDE.md` tells
-Claude Code to treat a bare subtitle path as "optimize this file." On the first
-run it sets up a local `.venv` for the helper. The result is written beside your
-file as `<name>_optimized.<ext>`; **the original is never modified.**
+Add instructions in the same message if a job differs ("English audio",
+"no bold", "keep the dialect").
 
-You can also just type a request like `optimize subtitles.srt`, or pass several
-paths at once.
+## How it works
 
-## Why it can't corrupt your timing
+| Step | Who | What |
+| --- | --- | --- |
+| Transcribe | `subtitle.py transcribe` | Whisper large-v3 + large-v3-turbo (MLX), word timestamps |
+| Verify | Claude + `subtitle.py clip` | Compare models, re-transcribe doubtful ranges, spot hallucinations over music/silence |
+| Write | Claude | Final text, Swiss orthography, punctuation, brand spellings |
+| Chunk | Claude → `chunks.json` | Which words form each event |
+| Build | `subtitle.py build` | Timing from the word table, SRT output, QA warnings |
 
-The model never writes a subtitle file. It only ever emits text keyed by event
-index, and `optimize_subs.py` re-attaches the **original timestamps** by that
-index:
-
-1. `optimize_subs.py extract file.srt` → JSON of every event
-   (`index`, `start`, `end`, `start_seconds`, `gap_before`, `text`).
-2. Claude optimizes the **text only**, returning `{"index": …, "text": …}` pairs.
-3. `optimize_subs.py apply file.srt edits.json` → writes `file_optimized.srt`.
-
-Because timestamps come from the source and the event count is fixed, timing
-survives whatever the model does to the text. Events are never added, removed,
-or reordered. The single sanctioned timing change is opt-in gap closing (below),
-which only ever *extends* an end time.
-
-`optimize_subs.py` is a deterministic, offline parse/write helper. It makes no
-network calls and needs no credentials.
-
-## What gets optimized
-
-- **Proofreading** — auto-detects the source language and edits only in that
-  language. Fixes spelling, grammar, typos, and punctuation while preserving
-  meaning, tone, register, and slang. It never translates, formalizes, censors,
-  or summarizes. In practice the big win is speech-to-text mishearings:
-  `abgefährt` → `abgefärbt`, `CO2-Fußprint` → `CO2-Footprint`.
-- **Swiss Standard German** — German-language subtitles are written in
-  *Schweizer Hochdeutsch*: no `ß` (always `ss` — `heisst`, `gross`, `Strasse`),
-  «guillemets» rather than „German quotes“, and `1'000` for thousands. This is a
-  spelling rule only; the speaker's wording is left exactly as spoken, and Swiss
-  German dialect is never flattened into standard German.
-- **Semantic line breaking** — keeps words that belong together on one line:
-  article+noun, adjective+noun, auxiliary+main verb, preposition+object,
-  multi-word names. Breaks fall at syntactic boundaries, never mid-phrase.
-- **Orphan & punctuation control** — no lone word stranded at an event's start or
-  end, and events end on natural punctuation where timing allows. Text is
-  redistributed across the events that already exist. The exception: if the
-  silence around a word exceeds ~1.5s it's a deliberate dramatic pause, and the
-  lone word is left to stand.
-- **Gap closing** *(opt-in, `--close-gaps`)* — STT output is full of tiny gaps
-  between consecutive events that make subtitles flicker. Each event's end time
-  is extended forward to touch the next event's start, but only when the gap is
-  ≤ 1.5s (`--max-gap`). Larger gaps — title cards, scene changes, dramatic beats
-  — are left intact. A start is never moved, an event is never shortened, and an
-  overlap is never created.
+Timing is never hand-typed: each event inherits the timestamps of the words it
+covers. Events within a sentence run back-to-back; at a pause the last one holds
+for 0.4 s and clears.
 
 ## Manual use
-
-You can drive the helper by hand:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
-.venv/bin/python optimize_subs.py extract video.srt              # dump events as JSON
-.venv/bin/python optimize_subs.py apply   video.srt edits.json   # write output
-.venv/bin/python optimize_subs.py apply   video.srt edits.json --close-gaps --swiss
-.venv/bin/python optimize_subs.py close-gaps video.srt --max-gap 1.5   # timing only
+.venv/bin/python subtitle.py transcribe ~/Downloads/clip.wav    # → work/clip/
+.venv/bin/python subtitle.py table clip                          # re-print word table
+.venv/bin/python subtitle.py clip clip 0 3.6 22.8 25.6           # re-check ranges
+# write work/clip/chunks.json, then:
+.venv/bin/python subtitle.py build clip --swiss --name "Clip V1"
 ```
 
-`edits.json` is a list of `{"index": <int>, "text": "<optimized>"}` — use `\n`
-for an in-event line break, and omit events you didn't change. Pass `-` instead
-of a path to read the edits from stdin.
+`chunks.json` is a list of `[token_count, "event text"]`; `[n, null]` skips n
+tokens (e.g. words Whisper invented over an intro jingle).
 
-| Flag | Effect |
-| --- | --- |
-| `--close-gaps` | Extend end times to close gaps ≤ `--max-gap` |
-| `--max-gap <s>` | Gap-closing threshold in seconds (default `1.5`) |
-| `--swiss` | Rewrite every `ß` as `ss` (and `ẞ` as `SS`) across all events, edited or not |
+### Tight timing (e.g. max 2 words per event)
 
-## Files
+Ask for "tight timing" or "max 2 words". Instead of borrowing Whisper's word
+timings, the final text is force-aligned to the audio with two engines (Whisper
+DTW and Meta's MMS phoneme aligner), checked against the speech profile, merged,
+and every event boundary is snapped to the nearest pause between words:
 
-| File | Purpose |
-| --- | --- |
-| `CLAUDE.md` | The instructions and rules the Claude Code instance follows |
-| `optimize_subs.py` | Offline parse/write helper (`extract` / `apply` / `close-gaps`) |
-| `requirements.txt` | `srt`, `webvtt-py` — no `anthropic`, no API used |
+```bash
+.venv/bin/python subtitle.py score   clip 25.3 28.5 "Variante A" "Variante B"   # which wording fits the audio
+.venv/bin/python subtitle.py align   clip --engine mms      # script.txt → words_mms.json
+.venv/bin/python subtitle.py align   clip --engine whisper  # script.txt → words_whisper.json
+.venv/bin/python subtitle.py compare clip 52.9 55.8          # speech profile + both engines
+.venv/bin/python subtitle.py merge   clip --mms "31.3-32.5" --avg "54.0-55.7"
+.venv/bin/python subtitle.py build   clip --words aligned --tight --swiss
+```
 
 ## Requirements
 
-Python 3.9+ and [Claude Code](https://claude.com/claude-code).
+- Apple Silicon Mac, Python 3.10+, `ffmpeg` (`brew install ffmpeg`)
+- `mlx-whisper`, plus `torch`/`torchaudio` for tight timing (see `requirements.txt`). The models download to
+  `~/.cache/huggingface` on first use (~3 GB each).
+
+## Files
+
+| Path | Purpose |
+| --- | --- |
+| `CLAUDE.md` | Procedure, style and language rules Claude follows (incl. tight timing) |
+| `subtitle.py` | Transcribe / clip / build helper |
+| `reference/Uncovered.srt` | Approved style reference (gitignored) |
+| `work/`, `output/` | Per-job files and delivered SRTs (gitignored) |

@@ -1,2 +1,4 @@
-srt>=3.5.3
-webvtt-py>=0.5.1
+mlx-whisper>=0.4
+# tight timing: MMS phoneme aligner
+torch>=2.9
+torchaudio>=2.9
