@@ -194,7 +194,9 @@ f. **Build tight:**
 - **No ß, ever** → `ss` (`weisst`, `Ausser`, `heisst`). `--swiss` enforces it.
 - Quotes are «guillemets», nested ‹single›.
 - Thousands separator is an apostrophe: `1'000`, `25'000`. Decimal comma for
-  spoken quantities (`0,9 g`, `1,2 g`). Percent with a space: `1 %`.
+  spoken quantities (`0,9 g`, `1,2 g`). Percent sign directly after the number,
+  no space: `70%`, `1%` (German and English; only French subtitles use
+  `70 %`).
 - Numbers as digits, as in the reference ("bis zu 5 Tage", "mit 16").
 
 **Punctuation must be spot on** — the user checks it closely:
